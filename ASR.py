@@ -37,7 +37,7 @@ womens_2000m_seconds = womens_scoring_tables_df.get("2000m", pd.Series()).apply(
 # Configuración de Streamlit
 st.set_page_config(page_title="ASR Velocity vs Time", layout="wide")
 st.title("Predictor de marcas de mediofondo")
-st.markdown("Esta aplicación simula mediante una curva exponencial negativa la perdida de reserva de velocidad anaerobica (ASR) entre los 20 segundos y los 6 minutos.")
+st.markdown("Esta aplicación simula mediante una curva exponencial negativa la perdida de reserva de velocidad anaeróbica (ASR) entre los 20 segundos y los 6 minutos.")
 
 # Sidebar para controles
 st.sidebar.header("Parámetros")
@@ -50,7 +50,7 @@ col1, col2 = st.sidebar.columns(2)
 with col1:
     distance_1 = st.number_input(
         "Distancia 1 (m)",
-        min_value=400,
+        min_value=200,
         max_value=2000,
         value=400,
         step=1
@@ -58,7 +58,7 @@ with col1:
 with col2:
     time_1_sec = st.number_input(
         "Tiempo 1 (seg)",
-        min_value=43.0,
+        min_value=20.0,
         max_value=360.0,
         value=54.0,
         step=0.1
@@ -69,7 +69,7 @@ col3, col4 = st.sidebar.columns(2)
 with col3:
     distance_2 = st.number_input(
         "Distancia 2 (m)",
-        min_value=400,
+        min_value=200,
         max_value=2000,
         value=1500,
         step=1
@@ -77,7 +77,7 @@ with col3:
 with col4:
     time_2_sec = st.number_input(
         "Tiempo 2 (seg)",
-        min_value=43.0,
+        min_value=20.0,
         max_value=360.0,
         value=250.0,
         step=0.1
@@ -297,8 +297,11 @@ if table_data:
     df = df.reset_index(drop=True)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-st.markdown("### Nota:")
-st.markdown("- Si haz corrido tiempos más rapidos que los indicados por la predicción, ingresa esos tiempos como Trials para ver margen tu de mejora.")
+st.markdown("### Notas:")
+st.markdown("- El modelo se ajusto haciendo uso de marcas de 400m, 800m y 1500m, por lo que los mejores resultados se obtienen con un trial 1 entre 400m y 800m, y un trial 2 entre 800m y 1500m.")
+st.markdown("- Las interpolaciones (marcas entre trials) tienden a ser más precisas que las extrapolaciones (marcas fuera del rango de los trials). ")
+st.markdown("- Si escoges distancias para los trials que sean muy cercanas entre sí (Ej: 1500m y milla), las predicciones para distancias más alejadas (Ej: 400m) serán extrapolaciones y podrían ser menos precisas.")
+st.markdown("- Si haz corrido tiempos más rapidos que los indicados por la predicción, ingresa esos tiempos como trials para ver margen tu de mejora.")
 st.markdown("- La predicción se basa en la suposición de que ambos trials son esfuerzos máximos realizados en un mismo estado de forma física (idealmente cercanos en el tiempo).")
 
 # --- GRÁFICO DE PUNTOS WORLD ATHLETICS ---
