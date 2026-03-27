@@ -34,6 +34,12 @@ womens_1500m_seconds = womens_scoring_tables_df.get("1500m", pd.Series()).apply(
 womens_1mile_seconds = womens_scoring_tables_df.get("Mile", pd.Series()).apply(mm_ss_to_seconds) if "Mile" in womens_scoring_tables_df.columns else None
 womens_2000m_seconds = womens_scoring_tables_df.get("2000m", pd.Series()).apply(mm_ss_to_seconds) if "2000m" in womens_scoring_tables_df.columns else None
 
+# Ratios de referencia basados en tablas WA (mismo criterio que race_predictor_2.py)
+mens_ratios_400_800 = (mens_400m_seconds / 400) / (mens_800m_seconds / 800) if mens_400m_seconds is not None and mens_800m_seconds is not None else None
+mens_ratios_800_1500 = (mens_800m_seconds / 800) / (mens_1500m_seconds / 1500) if mens_800m_seconds is not None and mens_1500m_seconds is not None else None
+womens_ratios_400_800 = (womens_400m_seconds / 400) / (womens_800m_seconds / 800) if womens_400m_seconds is not None and womens_800m_seconds is not None else None
+womens_ratios_800_1500 = (womens_800m_seconds / 800) / (womens_1500m_seconds / 1500) if womens_800m_seconds is not None and womens_1500m_seconds is not None else None
+
 # Configuración de Streamlit
 st.set_page_config(page_title="ASR Velocity vs Time", layout="wide")
 st.title("Predictor de marcas de mediofondo")
@@ -88,10 +94,28 @@ if time_1_sec >= time_2_sec:
     st.sidebar.error("⚠️ El Trial 1 debe ser más corto (menor tiempo) que el Trial 2")
     st.stop()
 
+
+def classify_runner_profile(ratio_400_800, ratio_800_1500, wa_ratio_400_800, wa_ratio_800_1500,
+                            limit_400_specialist, limit_1500_specialist):
+    """Clasifica con el mismo criterio de race_predictor_2.py."""
+    if ratio_400_800 < wa_ratio_400_800:
+        return "400m o menos", "Mejor desempeño relativo en 400m que en 800m."
+    if ratio_800_1500 > wa_ratio_800_1500:
+        return "1500m o más", "Mejor desempeño relativo en 1500m que en 800m."
+    if ratio_400_800 < limit_400_specialist:
+        return "800-400", "Perfil de 800m con tendencia a velocidad."
+    if ratio_800_1500 > limit_1500_specialist:
+        return "800-1500", "Perfil de 800m con tendencia a resistencia."
+    return "Especialista de 800", "Perfil equilibrado, especialista puro de 800m."
+
 # Calcular ASR y velocidad aeróbica
 try:
     ASR = anaerobic_speed_reserve(distance_1, time_1_sec, distance_2, time_2_sec)
     aerobic_speed_val = aerobic_speed(distance_2, time_2_sec, ASR)
+
+    if aerobic_speed_val <= 0:
+        st.sidebar.error("La velocidad aeróbica calculada no es válida. Revisa los trials ingresados.")
+        st.stop()
     
 except Exception as e:
     st.sidebar.error(f"Error en el cálculo: {str(e)}")
@@ -204,6 +228,85 @@ for dist, label in zip(distances, distance_labels):
             }
     except:
         pass
+
+# Clasificación de perfil con el mismo criterio que race_predictor_2.py
+runner_profile = "No disponible"
+profile_description = "No fue posible calcular el perfil con el criterio de 400/800/1500."
+ratio_400_800_actual = None
+ratio_800_1500_actual = None
+wa_ratio_400_800 = None
+wa_ratio_800_1500 = None
+
+if all(k in all_distance_data for k in ['400m', '800m', '1500m']):
+    t400 = all_distance_data['400m']['time']
+    t800 = all_distance_data['800m']['time']
+    t1500 = all_distance_data['1500m']['time']
+
+    if t400 > 0 and t800 > 0 and t1500 > 0:
+        ratio_400_800_actual = (t400 / 400) / (t800 / 800)
+        ratio_800_1500_actual = (t800 / 800) / (t1500 / 1500)
+
+        if gender == 'Masculino':
+            ratios_400_800 = mens_ratios_400_800
+            ratios_800_1500 = mens_ratios_800_1500
+            scoring_400 = mens_400m_seconds
+            scoring_800 = mens_800m_seconds
+            scoring_1500 = mens_1500m_seconds
+        else:
+            ratios_400_800 = womens_ratios_400_800
+            ratios_800_1500 = womens_ratios_800_1500
+            scoring_400 = womens_400m_seconds
+            scoring_800 = womens_800m_seconds
+            scoring_1500 = womens_1500m_seconds
+
+        t800_points = get_points(t800, scoring_800) if scoring_800 is not None else None
+
+        if (
+            t800_points is not None and
+            ratios_400_800 is not None and
+            ratios_800_1500 is not None and
+            t800_points in ratios_400_800.index and
+            t800_points in ratios_800_1500.index
+        ):
+            wa_ratio_400_800 = ratios_400_800.loc[t800_points]
+            wa_ratio_800_1500 = ratios_800_1500.loc[t800_points]
+
+            t400_min = 0.82 * t800 / 2
+            t400_max = 0.96 * t800 / 2
+            t400_range = np.linspace(t400_min, t400_max, 1000)
+            t1500_values_eq = (t800 - t400_range * 1.2) / 0.216
+
+            pace_400_eq = t400_range / 400
+            pace_800_eq = t800 / 800
+            pace_1500_eq = t1500_values_eq / 1500
+            ratio_400_800_eq = pace_400_eq / pace_800_eq
+            ratio_800_1500_eq = pace_800_eq / pace_1500_eq
+
+            points_400_eq = np.array([
+                get_points(t, scoring_400) if get_points(t, scoring_400) is not None else 0
+                for t in t400_range
+            ])
+            points_1500_eq = np.array([
+                get_points(t, scoring_1500) if get_points(t, scoring_1500) is not None else 0
+                for t in t1500_values_eq
+            ])
+
+            point_differences = np.abs(points_400_eq - points_1500_eq)
+            equilibrium_idx = np.argmin(point_differences)
+            equilibrium_ratio_400_800 = ratio_400_800_eq[equilibrium_idx]
+            equilibrium_ratio_800_1500 = ratio_800_1500_eq[equilibrium_idx]
+
+            limit_400_specialist = (equilibrium_ratio_400_800 + wa_ratio_400_800) / 2
+            limit_1500_specialist = (equilibrium_ratio_800_1500 + wa_ratio_800_1500) / 2
+
+            runner_profile, profile_description = classify_runner_profile(
+                ratio_400_800_actual,
+                ratio_800_1500_actual,
+                wa_ratio_400_800,
+                wa_ratio_800_1500,
+                limit_400_specialist,
+                limit_1500_specialist
+            )
 
 # Agregar marcadores de distancias
 if marker_times:
@@ -362,18 +465,57 @@ if wa_data:
     )
     
     # Agregar líneas de referencia para niveles
-    fig_wa.add_hline(y=1200, line_dash="dash", line_color="green", line_width=1.5,
-                    annotation_text="Elite (1200+)", annotation_position="right")
-    fig_wa.add_hline(y=1000, line_dash="dash", line_color="lightgreen", line_width=1,
-                    annotation_text="Muy Bueno (1000+)", annotation_position="right")
-    fig_wa.add_hline(y=800, line_dash="dash", line_color="gold", line_width=1,
-                    annotation_text="Bueno (800+)", annotation_position="right")
-    fig_wa.add_hline(y=600, line_dash="dash", line_color="orange", line_width=1,
-                    annotation_text="Intermedio (600+)", annotation_position="right")
+    fig_wa.add_hline(y=1200, line_dash="dash", line_color="green", line_width=1.5, annotation_position="right")
+    fig_wa.add_hline(y=1000, line_dash="dash", line_color="lightgreen", line_width=1, annotation_position="right")
+    fig_wa.add_hline(y=800, line_dash="dash", line_color="gold", line_width=1, annotation_position="right")
+    fig_wa.add_hline(y=600, line_dash="dash", line_color="orange", line_width=1, annotation_position="right")
     
     st.plotly_chart(fig_wa, use_container_width=True)
 else:
     st.warning("No hay datos de puntos World Athletics disponibles para las distancias predichas.")
+
+st.markdown("### Perfil de corredor")
+col_profile_1, col_profile_2, col_profile_3 = st.columns(3)
+with col_profile_1:
+    st.metric("Perfil", runner_profile)
+with col_profile_2:
+    st.metric("Ratio 400/800", f"{ratio_400_800_actual:.4f}" if ratio_400_800_actual is not None else "N/A")
+with col_profile_3:
+    st.metric("Ratio 800/1500", f"{ratio_800_1500_actual:.4f}" if ratio_800_1500_actual is not None else "N/A")
+
+st.caption(profile_description)
+
+# Mostrar valores límites de cada tipo de perfil
+if wa_ratio_400_800 is not None and wa_ratio_800_1500 is not None:
+    with st.expander("Valores límites de perfiles", expanded=False):
+        st.write("**Ratio de velocidades para marcas técnicas equivalentes (WA)**")
+        col_wa1, col_wa2 = st.columns(2)
+        with col_wa1:
+            st.metric("Ratio 400/800", f"{wa_ratio_400_800:.4f}")
+        with col_wa2:
+            st.metric("Ratio 800/1500", f"{wa_ratio_800_1500:.4f}")
+        
+        st.write("---")
+        st.write("**Límites de clasificación:**")
+        col_lim1, col_lim2, col_lim3, col_lim4 = st.columns(4)
+        with col_lim1:
+            st.metric("Ratio 400/800 de equilibrio", f"{equilibrium_ratio_400_800:.4f}" if 'equilibrium_ratio_400_800' in locals() else "N/A")
+        with col_lim2:
+            st.metric("Ratio 800/1500 de equilibrio", f"{equilibrium_ratio_800_1500:.4f}" if 'equilibrium_ratio_800_1500' in locals() else "N/A")
+        with col_lim3:
+            st.metric("Ratio 400/800 de velocidad", f"{limit_400_specialist:.4f}" if 'limit_400_specialist' in locals() else "N/A")
+        with col_lim4:
+            st.metric("Ratio 800/1500 de resistencia", f"{limit_1500_specialist:.4f}" if 'limit_1500_specialist' in locals() else "N/A")
+        
+        st.write("---")
+        st.write("**Criterios de clasificación:**")
+        st.markdown(f"""
+        - **400m o menos**: Ratio 400/800 < {wa_ratio_400_800:.4f}, mejor marca técnica en 400m que en 800m.
+        - **800-400**: Ratio 400/800 < {limit_400_specialist:.4f}, desempeño considerablemente mejor en 400m que en 1500m, tendencia a velocidad.
+        - **Especialista de 800**: Marcas técnicas equilibradas, sin tendencia fuerte a velocidad o resistencia.
+        - **800-1500**: Ratio 800/1500 > {limit_1500_specialist:.4f}, desempeño considerablemente mejor en 1500m que en 400m, tendencia a resistencia.
+        - **1500m o más**: Ratio 800/1500 > {wa_ratio_800_1500:.4f}, mejor marca técnica en 1500m que en 800m.
+        """)
 
 st.markdown("### Formulas utilizadas:")
 st.latex(r'''ASR = \frac{V_1 - V_2}{e^{-Kt_1} - e^{-Kt_2}}''')
